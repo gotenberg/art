@@ -35,6 +35,7 @@ PALETTE = {
     "O": "#8b5e3c",  # wood
     "o": "#5c3d24",  # wood shadow
     "w": "#b07d4f",  # wood highlight
+    "X": "#b42318",  # printer's red: the seal
     "P": "#7a86b8",  # elephant
     "p": "#4f5b93",  # elephant shade
 }
@@ -84,22 +85,7 @@ KRRRrRRRRRRrRRGgGGGGGGgGgGRRRRRRrRRRRRRK
 
 # Overlays are painted over the base; "." keeps the pixel underneath.
 
-LITHO = (10, 10, """\
-...........KKKKK....
-..........KcccccK...
-...........KFFFFFK..
-..FFFFF..KcKWWWWWKcK
-.FFFFFFF.KcKWWWWWKcK
-.FFFFFFF.KcKWWWWWKcK
-.KKKKKKK.KcKWWWWWKcK
-.WWWKKKW.KcKWWWWWKcK
-.WWWKKKW..KcKWWWWWK.
-..WWWWW...KcKWWWWWKK
-...........KcccccKKK
-............KKKKK..K
-....................
-""")
-
+# Awesome: wayfarer sunglasses.
 AWESOME = (7, 11, """\
 ...KKKKKKKKK..KKKKKKKKK...
 ...KHHHHHHHK..KHHHHHHHK...
@@ -112,6 +98,7 @@ KKKKHHhHHHHKKKKHHhHHHHKKKK
 .....KKKKK......KKKKK.....
 """)
 
+# PHP: the elePHPant on the shoulder.
 PHP = (24, 26, """\
 ....KKKKK.......
 ..KKPPPPPKKK....
@@ -242,16 +229,70 @@ def press(bar="right", platen=18, sheet="printed", phase=0):
     return g.rows
 
 
+def dashes(g, y, x0, x1, ch="g", phase=0):
+    """A line of text from x0 to x1: dashes of 3, 4, 2 and 3 with single gaps."""
+    pattern = (3, 1, 4, 1, 2, 1, 3, 1)
+    x, i = x0, phase
+    while x <= x1:
+        n = pattern[i % len(pattern)]
+        if i % 2 == 0:
+            g.hline(y, x, min(x1, x + n - 1), ch)
+        x += n
+        i += 1
+
+
+def ring(g, cx, cy, r_out, r_in, ch):
+    for y in range(SIZE):
+        for x in range(SIZE):
+            d = (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2
+            if r_in * r_in <= d <= r_out * r_out:
+                g.put(x, y, ch)
+
+
+def stamp(die=18, sealed=True):
+    """A printed sheet and the rubber stamp that seals it, held above the seal.
+
+    die: the top row of the rubber die, 18 when the stamp is held high, 22
+    when it is pressed on the sheet. sealed: whether the seal is on the sheet.
+    """
+    fill, light, dark = WOOD
+    g = Grid()
+    # the sheet, with its lines of text
+    g.rect(3, 7, 30, 38, "W")
+    for k, y in enumerate(range(11, 36, 3)):
+        dashes(g, y, 6, 27, phase=(k % 2) * 2)
+    if sealed:
+        ring(g, 23.5, 30.5, 6.5, 4.6, "X"); ring(g, 23.5, 30.5, 4.6, 0, "W")
+        for x, y in ((20, 30), (21, 31), (22, 32), (23, 31), (24, 30), (25, 29), (26, 28)):
+            g.put(x, y, "X")
+    # the stamp: knob, neck and flared handle, which squash a pixel onto the
+    # wooden mount when pressed; the rubber die shows its inked face only in the air
+    pressed = die >= 22
+    d = die
+    h = d + (1 if pressed else 0)
+    g.hline(h - 14, 21, 25, light); g.rect(20, h - 13, 26, h - 12, fill); g.rect(20, h - 13, 20, h - 12, light)
+    g.hline(h - 11, 21, 25, dark)
+    g.rect(22, h - 10, 24, h - 7, fill); g.rect(24, h - 10, 24, h - 7, dark)
+    for i, (x0, x1) in enumerate(((20, 26), (19, 27), (18, 28))):
+        g.hline(h - 6 + i, x0, x1, fill); g.put(x0, h - 6 + i, light)
+    g.rect(16, d - 3, 30, d - 1, fill); g.hline(d - 3, 16, 30, light); g.hline(d - 1, 16, 30, dark)
+    g.rect(17, d, 29, d + 1, "R")
+    if not pressed:
+        g.hline(d + 2, 18, 28, "X")
+    g.outline((-1, -1, -1, -1), set())
+    return g.rows
+
+
 def portrait(*overlays):
     return paint(parse(PORTRAIT), overlays)
 
 
 PIECES = {
     "logo": lambda: portrait(),
-    "litho-logo": lambda: portrait(LITHO),
     "awesome-logo": lambda: portrait(AWESOME),
     "php-logo": lambda: portrait(PHP),
     "press": lambda: press(),
+    "litho-logo": lambda: stamp(),
 }
 
 ANIMATIONS = {
@@ -263,6 +304,14 @@ ANIMATIONS = {
         (press(bar="front", platen=16, phase=1), 0.25),
         (press(platen=15), 1.0),
         (press(platen=15, sheet=None), 0.3),
+    ],
+    # the stamp comes down on a fresh sheet and lifts away from the seal
+    "litho-logo-animated": [
+        (stamp(sealed=False), 0.7),
+        (stamp(die=20, sealed=False), 0.15),
+        (stamp(die=22, sealed=False), 0.5),
+        (stamp(die=20), 0.15),
+        (stamp(), 1.3),
     ],
 }
 

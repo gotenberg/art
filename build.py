@@ -4,11 +4,12 @@
 Run `python3 build.py` to regenerate the SVG and PNG files next to this
 script. No dependency beyond the standard library.
 
-The portrait is a hand-drawn map: one character per pixel, "." transparent,
-PALETTE giving each character its colour. The Gutenberg press is drawn by
-press() from a few parameters, so its variants and animation frames share
-one drawing. An animation is a list of (frame, seconds); it is written as an
-SVG that cycles through its frames and as a PNG sprite sheet.
+Each piece is drawn on a 40 by 40 grid by a function taking a few parameters,
+so its variants and animation frames share one drawing: press() for the
+Gutenberg hand press, stamp() for litho's stamped sheet. PALETTE gives each
+character its colour and "." is transparent. An animation is a list of
+(frame, seconds); it is written as an SVG that cycles through its frames and
+as a PNG sprite sheet.
 """
 import struct
 import zlib
@@ -20,115 +21,16 @@ OUT = Path(__file__).resolve().parent
 
 PALETTE = {
     "K": "#1c1917",  # ink outline
-    "R": "#2a2522",  # cloth: hat crown, robe
-    "r": "#3d3734",  # cloth hatching
-    "H": "#3f3a36",  # fur, iron
-    "h": "#6b645d",  # fur highlight, iron highlight
-    "F": "#f3ede4",  # skin
-    "W": "#ffffff",  # eyes, teeth, ruff, paper
-    "c": "#bfb9b0",  # ruff pleat
-    "G": "#d6d3d1",  # beard
-    "g": "#a8a29e",  # beard strand, printed text
-    "M": "#d8c8c4",  # muzzle
-    "N": "#4a3728",  # nose
-    "n": "#7a5a44",  # nose highlight
+    "R": "#2a2522",  # rubber
+    "H": "#3f3a36",  # iron
+    "h": "#6b645d",  # iron highlight
+    "W": "#ffffff",  # paper
+    "g": "#a8a29e",  # printed text
     "O": "#8b5e3c",  # wood
     "o": "#5c3d24",  # wood shadow
     "w": "#b07d4f",  # wood highlight
     "X": "#b42318",  # printer's red: the seal
-    "P": "#7a86b8",  # elephant
-    "p": "#4f5b93",  # elephant shade
 }
-
-PORTRAIT = """\
-............KKKKKKKKKKKKKKKK............
-..........KKRRRRRRRRRRRRRRRRKK..........
-.........KRRRRRRRRRRRRRRRRRRRRK.........
-........KRRRRRRRRRRRRRRRRRRRRRRK........
-.......KRRRRRRRRRRRRRRRRRRRRRRRRK.......
-...KhKhKhKhKhKhKhKhKhKhKhKhKhKhKhKhKK...
-..KHHhHHHHHHHhHHHHHHHhHHHHHHHhHHHHHHHK..
-..KHHHhHHHHHHHhHHHHHHHhHHHHHHHhHHHHHHK..
-..KHHHHHHhHHHHHHHhHHHHHHHhHHHHHHHhHHHK..
-..KHHHHHHHhHHHHHHHhHHHHHHHhHHHHHHHhHHK..
-..KHHhHHHHHHHhHHHHHHHhHHHHHHHhHHHHHHHK..
-..KHHHhHHHHHKKKKKHHHHHhKKKKKHHhHHHHHHK..
-...KHHKHHKHKWWWWWKFHHFKWWWWWKHKHHKHHK...
-....KHKGGgKWWWWWWWKFFKWWWWWWWKgGGKKHK...
-.....KKGggKWWWWKKWKFFKWWKKWWWKgGGK.K....
-......KGggKWWWKKKWKFFKWKKKWWWKgGgK......
-......KGggKWWWKKKWKFFKWKKKWWWKggGK......
-.....KGgGgKWWWWWWWKFFKWWWWWWWKggGGK.....
-.....KGGGgFKWWWWWKFFFFKWWWWWKFggGGK.....
-.....KGGGgFFKKKKKFFFFFFKKKKKFFgGGGK.....
-.....KGgGgFFFFFFFFNNNNFFFFFFFFgGgGK.....
-.....KGGggFFFFFFKNnnNNNKFFFFFFgGgGK.....
-.....KGGggggggKKMNNNNNNMKKgggggGgGK.....
-.....KGGgGGgGGKMMMNNNNMMMKGgGGGGgGK.....
-....KGGGGGGgGGKMMMMMMMMMMKGGgGGGGGGK....
-....KGGgGGGGgGKKMMMMMMMMKKGGgGGGGGGK....
-..KKKGGgGGGGGGFKKKKKKKKKFFGGgGGgGGGKKK..
-.KcWWcKgGGGGGGGKWWWKWWWKGGGGGGGgGKcWWcK.
-.KcWWcKgGGGGgGgKWWWKWWWKGgGGGGGGgKcWWcK.
-.KcWWcKGGGGgGGgKWWWKWWWKGgGgGGGGgKcWWcK.
-.KcWWcWKGGGgGGGKWWWKWWWKGgGgGGGGKWcWWcK.
-..KWWcWKgGGgGGGgKKKKKKKGgGGgGGGGKWcWWK..
-...KWKWKgGGGGGGGGgGGGGGGGGGGgGGgKWKWK...
-...KRRRRRGGGgGGGGGGGGGgGGGGGGGGrRRRRK...
-..KRRRRRRGGGgGgGGgGGGgGGgGGGgGGRRRRRRK..
-.KRRRRRRrRGGgGgGGGgGGgGGGgGGgGRRRRRRrRK.
-KRRRRRRrRRRGgGgGGGgGGgGGGgGgGRRRRRRrRRRK
-KRRRRRrRRRRRGGgGGGgGGGGGGgGgRRRRRRrRRRRK
-KRRRRrRRRRRRrGGGGGGGGGGGGGGRRRRRRrRRRRRK
-KRRRrRRRRRRrRRGgGGGGGGgGgGRRRRRRrRRRRRRK
-"""
-
-# Overlays are painted over the base; "." keeps the pixel underneath.
-
-# Awesome: wayfarer sunglasses.
-AWESOME = (7, 11, """\
-...KKKKKKKKK..KKKKKKKKK...
-...KHHHHHHHK..KHHHHHHHK...
-KKKKHHhHHHHKKKKHHhHHHHKKKK
-...KHhHHHHHK..KHhHHHHHK...
-...KhHHhHHHK..KhHHhHHHK...
-...KHHhHHHHK..KHHhHHHHK...
-...KHhHHHHHK..KHhHHHHHK...
-....KHHHHHK....KHHHHHK....
-.....KKKKK......KKKKK.....
-""")
-
-# PHP: the elePHPant on the shoulder.
-PHP = (24, 26, """\
-....KKKKK.......
-..KKPPPPPKKK....
-.KPPPPPPPPPPKK..
-KPPPPPpppPPPPPK.
-KPWWPPppppPPPPPK
-KPWKPPppppPPPPPK
-KPPPPPPppPPPPPPK
-KKPPPPPPPPPPPPPK
-.KPKPPPPPPPPPPKK
-.KPKKPPKKKKPPK..
-.KPKKPPK..KPPK..
-.KPPKKKK..KKKK..
-..KKK...........
-""")
-
-def parse(text):
-    rows = [list(r) for r in text.split("\n") if r]
-    assert all(len(r) == len(rows[0]) for r in rows), "ragged map"
-    return rows
-
-
-def paint(grid, overlays):
-    for ox, oy, text in overlays:
-        for dy, row in enumerate(parse(text)):
-            for dx, ch in enumerate(row):
-                if ch != "." and 0 <= ox + dx < SIZE and 0 <= oy + dy < SIZE:
-                    grid[oy + dy][ox + dx] = ch
-    return grid
-
 
 class Grid:
     def __init__(self):
@@ -284,14 +186,7 @@ def stamp(die=18, sealed=True):
     return [[g.rows[y + 1][x - 3] if 0 <= x - 3 < SIZE and y + 1 < SIZE else "." for x in range(SIZE)] for y in range(SIZE)]
 
 
-def portrait(*overlays):
-    return paint(parse(PORTRAIT), overlays)
-
-
 PIECES = {
-    "logo": lambda: portrait(),
-    "awesome-logo": lambda: portrait(AWESOME),
-    "php-logo": lambda: portrait(PHP),
     "press": lambda: press(),
     "litho-logo": lambda: stamp(),
 }

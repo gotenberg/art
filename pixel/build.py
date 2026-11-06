@@ -280,7 +280,8 @@ def stamp(die=18, sealed=True):
     if not pressed:
         g.hline(d + 2, 18, 28, "X")
     g.outline((-1, -1, -1, -1), set())
-    return g.rows
+    # centre the composition in the frame: three cells right, one up
+    return [[g.rows[y + 1][x - 3] if 0 <= x - 3 < SIZE and y + 1 < SIZE else "." for x in range(SIZE)] for y in range(SIZE)]
 
 
 def portrait(*overlays):

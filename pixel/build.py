@@ -1,0 +1,342 @@
+#!/usr/bin/env python3
+"""Pixel art for Gotenberg.
+
+Run `python3 build.py` to regenerate the SVG and PNG files next to this
+script. No dependency beyond the standard library.
+
+The portrait is a hand-drawn map: one character per pixel, "." transparent,
+PALETTE giving each character its colour. The Gutenberg press is drawn by
+press() from a few parameters, so its variants and animation frames share
+one drawing. An animation is a list of (frame, seconds); it is written as an
+SVG that cycles through its frames and as a PNG sprite sheet.
+"""
+import struct
+import zlib
+from pathlib import Path
+
+SIZE = 40            # pixels per side
+SCALE = 16           # PNG export scale (40 px -> 640 px)
+OUT = Path(__file__).resolve().parent
+
+PALETTE = {
+    "K": "#1c1917",  # ink outline
+    "R": "#2a2522",  # cloth: hat crown, robe
+    "r": "#3d3734",  # cloth hatching
+    "H": "#3f3a36",  # fur, iron
+    "h": "#6b645d",  # fur highlight, iron highlight
+    "F": "#f3ede4",  # skin
+    "W": "#ffffff",  # eyes, teeth, ruff, paper
+    "c": "#bfb9b0",  # ruff pleat
+    "G": "#d6d3d1",  # beard
+    "g": "#a8a29e",  # beard strand, printed text
+    "M": "#d8c8c4",  # muzzle
+    "N": "#4a3728",  # nose
+    "n": "#7a5a44",  # nose highlight
+    "O": "#8b5e3c",  # wood
+    "o": "#5c3d24",  # wood shadow
+    "w": "#b07d4f",  # wood highlight
+    "P": "#7a86b8",  # elephant
+    "p": "#4f5b93",  # elephant shade
+}
+
+PORTRAIT = """\
+............KKKKKKKKKKKKKKKK............
+..........KKRRRRRRRRRRRRRRRRKK..........
+.........KRRRRRRRRRRRRRRRRRRRRK.........
+........KRRRRRRRRRRRRRRRRRRRRRRK........
+.......KRRRRRRRRRRRRRRRRRRRRRRRRK.......
+...KhKhKhKhKhKhKhKhKhKhKhKhKhKhKhKhKK...
+..KHHhHHHHHHHhHHHHHHHhHHHHHHHhHHHHHHHK..
+..KHHHhHHHHHHHhHHHHHHHhHHHHHHHhHHHHHHK..
+..KHHHHHHhHHHHHHHhHHHHHHHhHHHHHHHhHHHK..
+..KHHHHHHHhHHHHHHHhHHHHHHHhHHHHHHHhHHK..
+..KHHhHHHHHHHhHHHHHHHhHHHHHHHhHHHHHHHK..
+..KHHHhHHHHHKKKKKHHHHHhKKKKKHHhHHHHHHK..
+...KHHKHHKHKWWWWWKFHHFKWWWWWKHKHHKHHK...
+....KHKGGgKWWWWWWWKFFKWWWWWWWKgGGKKHK...
+.....KKGggKWWWWKKWKFFKWWKKWWWKgGGK.K....
+......KGggKWWWKKKWKFFKWKKKWWWKgGgK......
+......KGggKWWWKKKWKFFKWKKKWWWKggGK......
+.....KGgGgKWWWWWWWKFFKWWWWWWWKggGGK.....
+.....KGGGgFKWWWWWKFFFFKWWWWWKFggGGK.....
+.....KGGGgFFKKKKKFFFFFFKKKKKFFgGGGK.....
+.....KGgGgFFFFFFFFNNNNFFFFFFFFgGgGK.....
+.....KGGggFFFFFFKNnnNNNKFFFFFFgGgGK.....
+.....KGGggggggKKMNNNNNNMKKgggggGgGK.....
+.....KGGgGGgGGKMMMNNNNMMMKGgGGGGgGK.....
+....KGGGGGGgGGKMMMMMMMMMMKGGgGGGGGGK....
+....KGGgGGGGgGKKMMMMMMMMKKGGgGGGGGGK....
+..KKKGGgGGGGGGFKKKKKKKKKFFGGgGGgGGGKKK..
+.KcWWcKgGGGGGGGKWWWKWWWKGGGGGGGgGKcWWcK.
+.KcWWcKgGGGGgGgKWWWKWWWKGgGGGGGGgKcWWcK.
+.KcWWcKGGGGgGGgKWWWKWWWKGgGgGGGGgKcWWcK.
+.KcWWcWKGGGgGGGKWWWKWWWKGgGgGGGGKWcWWcK.
+..KWWcWKgGGgGGGgKKKKKKKGgGGgGGGGKWcWWK..
+...KWKWKgGGGGGGGGgGGGGGGGGGGgGGgKWKWK...
+...KRRRRRGGGgGGGGGGGGGgGGGGGGGGrRRRRK...
+..KRRRRRRGGGgGgGGgGGGgGGgGGGgGGRRRRRRK..
+.KRRRRRRrRGGgGgGGGgGGgGGGgGGgGRRRRRRrRK.
+KRRRRRRrRRRGgGgGGGgGGgGGGgGgGRRRRRRrRRRK
+KRRRRRrRRRRRGGgGGGgGGGGGGgGgRRRRRRrRRRRK
+KRRRRrRRRRRRrGGGGGGGGGGGGGGRRRRRRrRRRRRK
+KRRRrRRRRRRrRRGgGGGGGGgGgGRRRRRRrRRRRRRK
+"""
+
+# Overlays are painted over the base; "." keeps the pixel underneath.
+
+LITHO = (10, 10, """\
+...........KKKKK....
+..........KcccccK...
+...........KFFFFFK..
+..FFFFF..KcKWWWWWKcK
+.FFFFFFF.KcKWWWWWKcK
+.FFFFFFF.KcKWWWWWKcK
+.KKKKKKK.KcKWWWWWKcK
+.WWWKKKW.KcKWWWWWKcK
+.WWWKKKW..KcKWWWWWK.
+..WWWWW...KcKWWWWWKK
+...........KcccccKKK
+............KKKKK..K
+....................
+""")
+
+AWESOME = (7, 11, """\
+...KKKKKKKKK..KKKKKKKKK...
+...KHHHHHHHK..KHHHHHHHK...
+KKKKHHhHHHHKKKKHHhHHHHKKKK
+...KHhHHHHHK..KHhHHHHHK...
+...KhHHhHHHK..KhHHhHHHK...
+...KHHhHHHHK..KHHhHHHHK...
+...KHhHHHHHK..KHhHHHHHK...
+....KHHHHHK....KHHHHHK....
+.....KKKKK......KKKKK.....
+""")
+
+PHP = (24, 26, """\
+....KKKKK.......
+..KKPPPPPKKK....
+.KPPPPPPPPPPKK..
+KPPPPPpppPPPPPK.
+KPWWPPppppPPPPPK
+KPWKPPppppPPPPPK
+KPPPPPPppPPPPPPK
+KKPPPPPPPPPPPPPK
+.KPKPPPPPPPPPPKK
+.KPKKPPKKKKPPK..
+.KPKKPPK..KPPK..
+.KPPKKKK..KKKK..
+..KKK...........
+""")
+
+def parse(text):
+    rows = [list(r) for r in text.split("\n") if r]
+    assert all(len(r) == len(rows[0]) for r in rows), "ragged map"
+    return rows
+
+
+def paint(grid, overlays):
+    for ox, oy, text in overlays:
+        for dy, row in enumerate(parse(text)):
+            for dx, ch in enumerate(row):
+                if ch != "." and 0 <= ox + dx < SIZE and 0 <= oy + dy < SIZE:
+                    grid[oy + dy][ox + dx] = ch
+    return grid
+
+
+class Grid:
+    def __init__(self):
+        self.rows = [["."] * SIZE for _ in range(SIZE)]
+
+    def put(self, x, y, ch):
+        if 0 <= x < SIZE and 0 <= y < SIZE:
+            self.rows[y][x] = ch
+
+    def hline(self, y, x0, x1, ch):
+        for x in range(x0, x1 + 1):
+            self.put(x, y, ch)
+
+    def rect(self, x0, y0, x1, y1, ch):
+        for y in range(y0, y1 + 1):
+            self.hline(y, x0, x1, ch)
+
+    def outline(self, window, soft):
+        """Ink outline around everything drawn, except inside `window`
+        (x0, x1, y0, y1) where only the `soft` colours touch the background."""
+        g = self.rows
+        out = [r[:] for r in g]
+        for y in range(SIZE):
+            for x in range(SIZE):
+                if g[y][x] != ".":
+                    continue
+                near = [g[y + dy][x + dx] for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                        if 0 <= x + dx < SIZE and 0 <= y + dy < SIZE]
+                inside = window[0] <= x <= window[1] and window[2] <= y <= window[3]
+                if any(c != "." for c in near) and not (inside and all(c in soft or c == "." for c in near)):
+                    out[y][x] = "K"
+        self.rows = out
+
+
+WOOD = ("O", "w", "o")      # fill, highlight, shadow
+IRON = ("H", "h")           # fill, highlight
+
+
+def press(bar="right", platen=18, sheet="printed", phase=0):
+    """The hand press seen head on: the sheet lies on the iron forme, on a
+    long carriage bed, under the platen.
+
+    bar: "right" (at rest), "front" (pulled toward the viewer) or "left"
+    (swung across). platen: its top row, 15 when raised, 18 when down on the
+    sheet. sheet: None, "blank" or "printed". phase flips the screw thread,
+    to show it turning.
+    """
+    fill, light, dark = WOOD
+    iron, shine = IRON
+    g = Grid()
+    # cap, cheeks, base
+    g.rect(8, 3, 31, 6, fill); g.hline(3, 8, 31, light); g.hline(6, 8, 31, dark)
+    for x0 in (9, 27):
+        g.rect(x0, 7, x0 + 3, 35, fill); g.rect(x0, 7, x0, 35, light); g.rect(x0 + 3, 7, x0 + 3, 35, dark)
+    g.rect(7, 34, 32, 36, fill); g.hline(34, 7, 32, light); g.hline(36, 7, 32, dark)
+    # carriage bed and the forme on it
+    g.rect(4, 27, 35, 29, fill); g.hline(27, 4, 35, light); g.hline(29, 4, 35, dark)
+    g.rect(12, 25, 27, 26, iron); g.hline(25, 12, 27, shine)
+    if sheet:
+        g.rect(12, 21, 27, 24, "W")
+        if sheet == "printed":
+            for x in (14, 15, 16, 18, 19, 20, 21, 23, 24, 25):
+                g.put(x, 22, "g")
+            for x in (13, 14, 15, 17, 18, 19, 21, 22, 23, 25, 26):
+                g.put(x, 24, "g")
+    # platen, hose, nut and the screw running through it
+    p = platen
+    g.hline(p, 13, 26, shine); g.rect(13, p + 1, 26, p + 2, iron)
+    g.rect(18, p - 2, 21, p - 1, iron)
+    g.rect(16, 7, 23, 9, iron); g.hline(7, 16, 23, shine)
+    for y in range(10, p - 2):
+        g.hline(y, 19, 21, shine if (y + phase) % 2 == 0 else iron)
+    # bar and knob
+    sx = 20
+
+    def seg(x0, x1, y):
+        g.hline(y, x0, x1, fill); g.hline(y + 1, x0, x1, dark)
+
+    def knob(x0, y0):
+        g.rect(x0, y0, x0 + 2, y0 + 3, light)
+        for x, y in ((x0, y0), (x0 + 2, y0), (x0, y0 + 3), (x0 + 2, y0 + 3)):
+            g.put(x, y, fill)
+
+    if bar == "right":
+        for i in range(4):
+            seg(sx + 2 + 3 * i, sx + 4 + 3 * i, 12 + i)
+        seg(sx + 14, sx + 15, 16); knob(sx + 15, 15)
+    elif bar == "left":
+        for i in range(4):
+            seg(sx - 4 - 3 * i, sx - 2 - 3 * i, 12 + i)
+        seg(sx - 15, sx - 14, 16); knob(sx - 17, 15)
+    else:
+        g.rect(sx - 1, 13, sx + 1, 14, dark)
+        g.rect(sx - 2, 15, sx + 2, 18, light)
+        for x, y in ((sx - 2, 15), (sx + 2, 15), (sx - 2, 18), (sx + 2, 18)):
+            g.put(x, y, fill)
+    g.outline((13, 26, 7, 26), set(WOOD))
+    return g.rows
+
+
+def portrait(*overlays):
+    return paint(parse(PORTRAIT), overlays)
+
+
+PIECES = {
+    "logo": lambda: portrait(),
+    "litho-logo": lambda: portrait(LITHO),
+    "awesome-logo": lambda: portrait(AWESOME),
+    "php-logo": lambda: portrait(PHP),
+    "press": lambda: press(),
+}
+
+ANIMATIONS = {
+    # a sheet goes in blank, the bar swings across, the sheet comes out printed
+    "press-animated": [
+        (press(platen=15, sheet="blank"), 0.7),
+        (press(bar="front", platen=16, sheet="blank", phase=1), 0.25),
+        (press(bar="left", platen=18, sheet="blank"), 0.6),
+        (press(bar="front", platen=16, phase=1), 0.25),
+        (press(platen=15), 1.0),
+        (press(platen=15, sheet=None), 0.3),
+    ],
+}
+
+
+def paths(grid):
+    runs = {}
+    for y, row in enumerate(grid):
+        x = 0
+        while x < len(row):
+            ch = row[x]
+            start = x
+            while x < len(row) and row[x] == ch:
+                x += 1
+            if ch != ".":
+                runs.setdefault(PALETTE[ch], []).append(f"M{start} {y}h{x - start}v1h-{x - start}z")
+    return "\n".join(f'  <path fill="{color}" d="{"".join(d)}"/>' for color, d in runs.items())
+
+
+def svg_open():
+    px = SIZE * SCALE
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SIZE} {SIZE}" '
+            f'width="{px}" height="{px}" shape-rendering="crispEdges">\n')
+
+
+def svg(grid):
+    return svg_open() + paths(grid) + "\n</svg>\n"
+
+
+def svg_animated(frames):
+    total = sum(seconds for _, seconds in frames)
+    css = [f".f{{opacity:0;animation:{total:g}s step-end infinite}}"]
+    groups = []
+    t = 0
+    for i, (grid, seconds) in enumerate(frames):
+        a, b = 100 * t / total, 100 * (t + seconds) / total
+        css.append(f".f{i}{{animation-name:f{i}}}@keyframes f{i}{{0%{{opacity:0}}{a:.3f}%{{opacity:1}}{b:.3f}%{{opacity:0}}}}")
+        groups.append(f'<g class="f f{i}">\n{paths(grid)}\n</g>')
+        t += seconds
+    css.append("@media(prefers-reduced-motion:reduce){.f{animation:none}.f0{opacity:1}}")
+    return svg_open() + "<style>" + "".join(css) + "</style>\n" + "\n".join(groups) + "\n</svg>\n"
+
+
+def png(grid):
+    def rgba(ch):
+        if ch == ".":
+            return b"\0\0\0\0"
+        c = PALETTE[ch]
+        return bytes(int(c[i:i + 2], 16) for i in (1, 3, 5)) + b"\xff"
+
+    raw = b"".join(
+        (b"\0" + b"".join(rgba(ch) * SCALE for ch in row)) * SCALE for row in grid
+    )
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    width, height = len(grid[0]) * SCALE, len(grid) * SCALE
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+if __name__ == "__main__":
+    for name, draw in PIECES.items():
+        grid = draw()
+        (OUT / f"{name}.svg").write_text(svg(grid))
+        (OUT / f"{name}.png").write_bytes(png(grid))
+        print(name)
+    for name, frames in ANIMATIONS.items():
+        (OUT / f"{name}.svg").write_text(svg_animated(frames))
+        sheet = [sum((grid[y] for grid, _ in frames), []) for y in range(SIZE)]
+        (OUT / f"{name}.png").write_bytes(png(sheet))
+        print(name, f"({len(frames)} frames)")

@@ -331,17 +331,27 @@ def paths(grid):
     return "\n".join(f'  <path fill="{color}" d="{"".join(d)}"/>' for color, d in runs.items())
 
 
-def svg_open():
-    px = SIZE * SCALE
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SIZE} {SIZE}" '
-            f'width="{px}" height="{px}" shape-rendering="crispEdges">\n')
+FULL = (0, 0, SIZE, SIZE)
 
 
-def svg(grid):
-    return svg_open() + paths(grid) + "\n</svg>\n"
+def bounds(grids):
+    """The box (x, y, width, height) holding every drawn pixel of the grids."""
+    xs = [x for g in grids for row in g for x, ch in enumerate(row) if ch != "."]
+    ys = [y for g in grids for y, row in enumerate(g) for ch in row if ch != "."]
+    return min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
 
 
-def svg_animated(frames):
+def svg_open(box):
+    x, y, w, h = box
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{x} {y} {w} {h}" '
+            f'width="{w * SCALE}" height="{h * SCALE}" shape-rendering="crispEdges">\n')
+
+
+def svg(grid, box=FULL):
+    return svg_open(box) + paths(grid) + "\n</svg>\n"
+
+
+def svg_animated(frames, box=FULL):
     total = sum(seconds for _, seconds in frames)
     css = [f".f{{opacity:0;animation:{total:g}s step-end infinite}}"]
     groups = []
@@ -352,10 +362,13 @@ def svg_animated(frames):
         groups.append(f'<g class="f f{i}">\n{paths(grid)}\n</g>')
         t += seconds
     css.append("@media(prefers-reduced-motion:reduce){.f{animation:none}.f0{opacity:1}}")
-    return svg_open() + "<style>" + "".join(css) + "</style>\n" + "\n".join(groups) + "\n</svg>\n"
+    return svg_open(box) + "<style>" + "".join(css) + "</style>\n" + "\n".join(groups) + "\n</svg>\n"
 
 
-def png(grid):
+def png(grid, box=FULL):
+    x0, y0, w, h = box
+    grid = [row[x0:x0 + w] for row in grid[y0:y0 + h]]
+
     def rgba(ch):
         if ch == ".":
             return b"\0\0\0\0"
@@ -379,14 +392,21 @@ def png(grid):
     )
 
 
+# Pieces written trimmed to their ink instead of the full square. The press
+# keeps the square: gotenberg.dev sizes it by the 40 px grid.
+TRIMMED = {"litho-logo", "litho-logo-animated"}
+
 if __name__ == "__main__":
     for name, draw in PIECES.items():
         grid = draw()
-        (OUT / f"{name}.svg").write_text(svg(grid))
-        (OUT / f"{name}.png").write_bytes(png(grid))
-        print(name)
+        box = bounds([grid]) if name in TRIMMED else FULL
+        (OUT / f"{name}.svg").write_text(svg(grid, box))
+        (OUT / f"{name}.png").write_bytes(png(grid, box))
+        print(name, box)
     for name, frames in ANIMATIONS.items():
-        (OUT / f"{name}.svg").write_text(svg_animated(frames))
-        sheet = [sum((grid[y] for grid, _ in frames), []) for y in range(SIZE)]
-        (OUT / f"{name}.png").write_bytes(png(sheet))
-        print(name, f"({len(frames)} frames)")
+        box = bounds([grid for grid, _ in frames]) if name in TRIMMED else FULL
+        (OUT / f"{name}.svg").write_text(svg_animated(frames, box))
+        x0, y0, w, h = box
+        sheet = [sum((grid[y][x0:x0 + w] for grid, _ in frames), []) for y in range(y0, y0 + h)]
+        (OUT / f"{name}.png").write_bytes(png(sheet, (0, 0, w * len(frames), h)))
+        print(name, box, f"({len(frames)} frames)")

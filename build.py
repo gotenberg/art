@@ -50,7 +50,9 @@ class Grid:
 
     def outline(self, window, soft):
         """Ink outline around everything drawn, except inside `window`
-        (x0, x1, y0, y1) where only the `soft` colours touch the background."""
+        (x0, x1, y0, y1) where only the `soft` colours touch the background.
+        Ink already laid is left alone, so a piece can be outlined in layers:
+        what is drawn next hides the ink it covers and nothing else."""
         g = self.rows
         out = [r[:] for r in g]
         for y in range(SIZE):
@@ -58,7 +60,7 @@ class Grid:
                 if g[y][x] != ".":
                     continue
                 near = [g[y + dy][x + dx] for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
-                        if 0 <= x + dx < SIZE and 0 <= y + dy < SIZE]
+                        if 0 <= x + dx < SIZE and 0 <= y + dy < SIZE and g[y + dy][x + dx] != "K"]
                 inside = window[0] <= x <= window[1] and window[2] <= y <= window[3]
                 if any(c != "." for c in near) and not (inside and all(c in soft or c == "." for c in near)):
                     out[y][x] = "K"
@@ -103,7 +105,11 @@ def press(bar="right", platen=18, sheet="printed", phase=0):
     g.rect(16, 7, 23, 9, iron); g.hline(7, 16, 23, shine)
     for y in range(10, p - 2):
         g.hline(y, 19, 21, shine if (y + phase) % 2 == 0 else iron)
-    # bar and knob
+    # between the cheeks the frame's wood meets the background without ink
+    frame = (13, 26, 7, 26)
+    g.outline(frame, set(WOOD))
+    # bar and knob, in front of the press: they hide what they cover, not the
+    # ink around it, so the platen keeps its bottom line under the knob
     sx = 20
 
     def seg(x0, x1, y):
@@ -127,7 +133,7 @@ def press(bar="right", platen=18, sheet="printed", phase=0):
         g.rect(sx - 2, 15, sx + 2, 18, light)
         for x, y in ((sx - 2, 15), (sx + 2, 15), (sx - 2, 18), (sx + 2, 18)):
             g.put(x, y, fill)
-    g.outline((13, 26, 7, 26), set(WOOD))
+    g.outline(frame, set(WOOD))
     return g.rows
 
 
